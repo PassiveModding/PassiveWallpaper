@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using PassiveWallpaperF;
 
 namespace PassiveWallpaperF
 {
@@ -27,7 +28,7 @@ namespace PassiveWallpaperF
 
             //Attempt to fetch the current wallpaper path.
             string currentWallpaper = new string('\0', 260);
-            SystemParametersInfo(SPI_GETDESKWALLPAPER, currentWallpaper.Length, currentWallpaper, 0);
+            Natives.SystemParametersInfo((uint)Natives.SPIWALL.GET, currentWallpaper.Length, currentWallpaper, 0);
             currentWallpaper = currentWallpaper.Substring(0, currentWallpaper.IndexOf('\0'));
 
             monitor_info.Text = msg;
@@ -57,105 +58,6 @@ namespace PassiveWallpaperF
         }
 
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        public static extern IntPtr SendMessageTimeout(
-            IntPtr hWnd,
-            uint Msg,
-            IntPtr wParam,
-            IntPtr lParam,
-            SendMessageTimeoutFlags fuFlags,
-            uint uTimeout,
-            out IntPtr lpdwResult);
-
-        
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, string pvParam, SPIF fWinIni);
-
-        [Flags()]
-        public enum SPIF
-        {
-
-            None = 0x00,
-            /// <summary>Writes the new system-wide parameter setting to the user profile.</summary>
-            SPIF_UPDATEINIFILE = 0x01,
-            /// <summary>Broadcasts the WM_SETTINGCHANGE message after updating the user profile.</summary>
-            SPIF_SENDCHANGE = 0x02
-        }
-
-        const int SPI_SETDESKWALLPAPER = 0x14;
-        private const int SPI_GETDESKWALLPAPER = 0x73;
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        public static extern int SystemParametersInfo(UInt32 uAction, int uParam, string lpvParam, int fuWinIni);
-
-        public enum SendMessageTimeoutFlags : uint
-        {
-            SMTO_NORMAL = 0x0,
-            SMTO_BLOCK = 0x1,
-            SMTO_ABORTIFHUNG = 0x2,
-            SMTO_NOTIMEOUTIFNOTHUNG = 0x8,
-            SMTO_ERRORONEXIT = 0x20
-        }
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string className, string windowTitle);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-
-        [Flags()]
-        enum DeviceContextValues : uint
-        {
-            /// <summary>DCX_WINDOW: Returns a DC that corresponds to the window rectangle rather 
-            /// than the client rectangle.</summary>
-            Window = 0x00000001,
-            /// <summary>DCX_CACHE: Returns a DC from the cache, rather than the OWNDC or CLASSDC 
-            /// window. Essentially overrides CS_OWNDC and CS_CLASSDC.</summary>
-            Cache = 0x00000002,
-            /// <summary>DCX_NORESETATTRS: Does not reset the attributes of this DC to the 
-            /// default attributes when this DC is released.</summary>
-            NoResetAttrs = 0x00000004,
-            /// <summary>DCX_CLIPCHILDREN: Excludes the visible regions of all child windows 
-            /// below the window identified by hWnd.</summary>
-            ClipChildren = 0x00000008,
-            /// <summary>DCX_CLIPSIBLINGS: Excludes the visible regions of all sibling windows 
-            /// above the window identified by hWnd.</summary>
-            ClipSiblings = 0x00000010,
-            /// <summary>DCX_PARENTCLIP: Uses the visible region of the parent window. The 
-            /// parent's WS_CLIPCHILDREN and CS_PARENTDC style bits are ignored. The origin is 
-            /// set to the upper-left corner of the window identified by hWnd.</summary>
-            ParentClip = 0x00000020,
-            /// <summary>DCX_EXCLUDERGN: The clipping region identified by hrgnClip is excluded 
-            /// from the visible region of the returned DC.</summary>
-            ExcludeRgn = 0x00000040,
-            /// <summary>DCX_INTERSECTRGN: The clipping region identified by hrgnClip is 
-            /// intersected with the visible region of the returned DC.</summary>
-            IntersectRgn = 0x00000080,
-            /// <summary>DCX_EXCLUDEUPDATE: Unknown...Undocumented</summary>
-            ExcludeUpdate = 0x00000100,
-            /// <summary>DCX_INTERSECTUPDATE: Unknown...Undocumented</summary>
-            IntersectUpdate = 0x00000200,
-            /// <summary>DCX_LOCKWINDOWUPDATE: Allows drawing even if there is a LockWindowUpdate 
-            /// call in effect that would otherwise exclude this window. Used for drawing during 
-            /// tracking.</summary>
-            LockWindowUpdate = 0x00000400,
-            /// <summary>DCX_VALIDATE When specified with DCX_INTERSECTUPDATE, causes the DC to 
-            /// be completely validated. Using this function with both DCX_INTERSECTUPDATE and 
-            /// DCX_VALIDATE is identical to using the BeginPaint function.</summary>
-            Validate = 0x00200000,
-        }
-
-        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
-
         public Dictionary<int, BackgroundForm> Forms = new Dictionary<int, BackgroundForm>();
 
         /// <summary>
@@ -169,17 +71,17 @@ namespace PassiveWallpaperF
         public IntPtr GetHandle()
         {
             //Obtain Program Manager Handle
-            IntPtr progman = FindWindow("Progman", null);
+            IntPtr progman = Natives.FindWindow("Progman", null);
                         
             // Send 0x052C to Progman. This message directs Progman to spawn a 
             // WorkerW behind the desktop icons. If it is already there, nothing 
             // happens.
             IntPtr result = IntPtr.Zero;
-            SendMessageTimeout(progman,
+            Natives.SendMessageTimeout(progman,
                 0x052C,
                 new IntPtr(0),
                 IntPtr.Zero,
-                SendMessageTimeoutFlags.SMTO_NORMAL,
+                Natives.SendMessageTimeoutFlags.SMTO_NORMAL,
                 1000,
                 out result);
             
@@ -198,9 +100,9 @@ namespace PassiveWallpaperF
             // We enumerate all Windows, until we find one, that has the SHELLDLL_DefView 
             // as a child. 
             // If we found that window, we take its next sibling and assign it to workerw.
-            EnumWindows((tophandle, topparamhandle) =>
+            Natives.EnumWindows((tophandle, topparamhandle) =>
             {
-                IntPtr p = FindWindowEx(tophandle,
+                IntPtr p = Natives.FindWindowEx(tophandle,
                     IntPtr.Zero,
                     "SHELLDLL_DefView",
                     null);
@@ -208,7 +110,7 @@ namespace PassiveWallpaperF
                 if (p != IntPtr.Zero)
                 {
                     // Gets the WorkerW Window after the current one.
-                    workerw = FindWindowEx(IntPtr.Zero,
+                    workerw = Natives.FindWindowEx(IntPtr.Zero,
                         tophandle,
                         "WorkerW",
                         null);
@@ -312,7 +214,7 @@ namespace PassiveWallpaperF
                 form.Form.Controls.Add(pic);
 
                 //Ensure the parent of the new form is the WorkerW process that was spawned between the desktop wallpaper and icons
-                SetParent(form.Form.Handle, workerw);
+                Natives.SetParent(form.Form.Handle, workerw);
             };
 
             //Ensure that the closing event of the form is set in order to re-set the current desktop wallpaper and 'refresh' it, removing any artifacts
@@ -343,7 +245,7 @@ namespace PassiveWallpaperF
         {
             //Attempts the return the currently set wallpaper path
             string currentWallpaper = new string('\0', 260);
-            SystemParametersInfo(SPI_GETDESKWALLPAPER, currentWallpaper.Length, currentWallpaper, 0);
+            Natives.SystemParametersInfo((uint)Natives.SPIWALL.GET, currentWallpaper.Length, currentWallpaper, 0);
             currentWallpaper = currentWallpaper.Substring(0, currentWallpaper.IndexOf('\0'));
             return currentWallpaper;
         }
@@ -353,7 +255,7 @@ namespace PassiveWallpaperF
         /// </summary>
         public void SetImage()
         {
-            SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, GetCurrentWallpaperPath(), SPIF.SPIF_UPDATEINIFILE | SPIF.SPIF_SENDCHANGE);
+            Natives.SystemParametersInfo((uint)Natives.SPIWALL.SET, 0, GetCurrentWallpaperPath(), Natives.SPIF.SPIF_UPDATEINIFILE | Natives.SPIF.SPIF_SENDCHANGE);
         }
 
         private void disable_all_button_Click(object sender, EventArgs e)
@@ -530,14 +432,11 @@ namespace PassiveWallpaperF
 
 
                 //Set the processes parent to be the workerW process
-                var originalParent = SetParent(process.Value.MainWindowHandle, GetHandle());
+                var originalParent = Natives.SetParent(process.Value.MainWindowHandle, GetHandle());
                 belowProcesses.Items.Add(val);
                 MovedProcesses.Add(idValue, new MovedProcess(originalParent, process.Value));
             }
         }
-
-        [DllImport("USER32.DLL")]
-        public static extern bool SetForegroundWindow(IntPtr hWnd);
 
         public static void bringToFront(IntPtr handle)
         {
@@ -546,7 +445,7 @@ namespace PassiveWallpaperF
                 return;
             }
 
-            SetForegroundWindow(handle);
+            Natives.SetForegroundWindow(handle);
         }
 
         private void moveForeground_Click(object sender, EventArgs e)
@@ -563,7 +462,7 @@ namespace PassiveWallpaperF
                 if (MovedProcesses.TryGetValue(idValue, out var processMatch))
                 {
                     //Reset the process parent, moving it back above the desktop.
-                    SetParent(processMatch.Process.MainWindowHandle, processMatch.OriginalParent);
+                    Natives.SetParent(processMatch.Process.MainWindowHandle, processMatch.OriginalParent);
                     //Focus the window
                     bringToFront(processMatch.Process.MainWindowHandle);
 
@@ -580,7 +479,7 @@ namespace PassiveWallpaperF
             //Iterate through each moved process and restore it.
             foreach (var pair in MovedProcesses)
             {
-                SetParent(pair.Value.Process.MainWindowHandle, pair.Value.OriginalParent);
+                Natives.SetParent(pair.Value.Process.MainWindowHandle, pair.Value.OriginalParent);
                 bringToFront(pair.Value.Process.MainWindowHandle);         
             }
 
