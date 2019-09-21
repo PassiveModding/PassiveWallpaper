@@ -17,6 +17,7 @@ namespace PassiveWallpaperF
             InitializeComponent();
             int monId = 0;
             string msg = "";
+            //Fill out monitor info so the user knows which screen is selected when choosing a gif location
             foreach (Screen screen in Screen.AllScreens)
             {
                 string str = $"Monitor {monId}: {screen.Bounds.Width} x {screen.Bounds.Height} @ {screen.Bounds.X},{screen.Bounds.Y} Primary: {screen.Primary}\n";
@@ -24,6 +25,7 @@ namespace PassiveWallpaperF
                 monId++;
             }
 
+            //Attempt to fetch the current wallpaper path.
             string currentWallpaper = new string('\0', 260);
             SystemParametersInfo(SPI_GETDESKWALLPAPER, currentWallpaper.Length, currentWallpaper, 0);
             currentWallpaper = currentWallpaper.Substring(0, currentWallpaper.IndexOf('\0'));
@@ -31,8 +33,10 @@ namespace PassiveWallpaperF
             monitor_info.Text = msg;
             numericUpDown1.Maximum = monId - 1;
 
+            //Set closing events to remove spawned forms and moved windows.
             if (!File.Exists(currentWallpaper))
             {
+                //If current wallpaper path is not set then warn the user.
                 var message = $"Your currently set wallpaper {currentWallpaper} doesn't exist on file ie. you have moved it since it was set.\n" +
                               "It is recommended that you set your wallpaper prior to using this tool.\n" +
                               "This is because when disabling the overlays the program sets your wallpaper in order to \"refresh\" your desktop back to the original state.";
@@ -53,7 +57,6 @@ namespace PassiveWallpaperF
         }
 
 
-
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 
@@ -66,6 +69,28 @@ namespace PassiveWallpaperF
             SendMessageTimeoutFlags fuFlags,
             uint uTimeout,
             out IntPtr lpdwResult);
+
+        
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, string pvParam, SPIF fWinIni);
+
+        [Flags()]
+        public enum SPIF
+        {
+
+            None = 0x00,
+            /// <summary>Writes the new system-wide parameter setting to the user profile.</summary>
+            SPIF_UPDATEINIFILE = 0x01,
+            /// <summary>Broadcasts the WM_SETTINGCHANGE message after updating the user profile.</summary>
+            SPIF_SENDCHANGE = 0x02
+        }
+
+        const int SPI_SETDESKWALLPAPER = 0x14;
+        private const int SPI_GETDESKWALLPAPER = 0x73;
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern int SystemParametersInfo(UInt32 uAction, int uParam, string lpvParam, int fuWinIni);
 
         public enum SendMessageTimeoutFlags : uint
         {
@@ -131,11 +156,24 @@ namespace PassiveWallpaperF
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
 
-        public Dictionary<int, BackfroundForm> Forms = new Dictionary<int, BackfroundForm>();
+        public Dictionary<int, BackgroundForm> Forms = new Dictionary<int, BackgroundForm>();
 
+        /// <summary>
+        /// Gets the window handle for a window below the desktop icons
+        /// Courtesy https://www.codeproject.com/Articles/856020/Draw-behind-Desktop-Icons-in-Windows
+        /// 
+        /// when you change the desktop wallpaper, a new WorkerW window between the WorkerW instance that holds the Desktop Icons (SysListView32) and the Desktop Manager is created.
+        /// take the handle of that new WorkerW window in order to be able to draw behind the desktop icons, directly above the wallpaper!
+        /// </summary>
+        /// <returns></returns>
         public IntPtr GetHandle()
         {
+            //Obtain Program Manager Handle
             IntPtr progman = FindWindow("Progman", null);
+                        
+            // Send 0x052C to Progman. This message directs Progman to spawn a 
+            // WorkerW behind the desktop icons. If it is already there, nothing 
+            // happens.
             IntPtr result = IntPtr.Zero;
             SendMessageTimeout(progman,
                 0x052C,
@@ -144,9 +182,22 @@ namespace PassiveWallpaperF
                 SendMessageTimeoutFlags.SMTO_NORMAL,
                 1000,
                 out result);
+            
 
+
+            // Spy++ output
+            // .....
+            // 0x00010190 "" WorkerW
+            //   ...
+            //   0x000100EE "" SHELLDLL_DefView
+            //     0x000100F0 "FolderView" SysListView32
+            // 0x00100B8A "" WorkerW       <-- This is the WorkerW instance we are after!
+            // 0x000100EC "Program Manager" Progman
             IntPtr workerw = IntPtr.Zero;
 
+            // We enumerate all Windows, until we find one, that has the SHELLDLL_DefView 
+            // as a child. 
+            // If we found that window, we take its next sibling and assign it to workerw.
             EnumWindows((tophandle, topparamhandle) =>
             {
                 IntPtr p = FindWindowEx(tophandle,
@@ -175,6 +226,7 @@ namespace PassiveWallpaperF
 
             string gifPath = "";
 
+            //Select a gif file to be placed in the picture box.
             using (OpenFileDialog openFileDialog = new OpenFileDialog
             {
                 Filter = "Gif files (*.gif)|*.gif",
@@ -189,7 +241,10 @@ namespace PassiveWallpaperF
 
                 try
                 {
+                    //Set variables to match the data returned by the selected image
                     gifPath = openFileDialog.FileName;
+
+                    //Set the value in the picturebox as a preview of the selected image
                     pictureBox1.ImageLocation = gifPath;
                     pictureBox1.SizeMode = PictureBoxSizeMode.StretchImage;
                 }
@@ -200,9 +255,13 @@ namespace PassiveWallpaperF
                 }
             }
 
+            // Create a new background form
+            var form = new BackgroundForm();
 
-            var form = new BackfroundForm();
+            //Fetch the selected monitor
             int monitorId = int.Parse(numericUpDown1.Value.ToString());
+
+            //Attempt to remove previously allocated items from that monitor
             if (Forms.TryGetValue(monitorId, out var currentForm))
             {
                 currentForm.Form.Close();
@@ -210,18 +269,22 @@ namespace PassiveWallpaperF
             }
             Forms.Add(monitorId, form);
 
+            // Set the background forum to be borderless
             form.Form.FormBorderStyle = FormBorderStyle.None;
             form.Form.Text = "PassiveWallpaper";
 
             Screen selectedScreen = Screen.AllScreens[monitorId];
 
+            //On the loading of the background form set the new properties
             form.Form.Load += (s, e2) =>
             {
+                //Ensure the form takes up the entire screen size of the selected monitor
                 form.Form.Width = selectedScreen.Bounds.Width;
                 form.Form.Height = selectedScreen.Bounds.Height;
                 form.Form.Left = selectedScreen.Bounds.X;
                 form.Form.Top = selectedScreen.Bounds.Y;
 
+                //Create a new picturebox that fills the form and set it's image contents
                 PictureBox pic = new PictureBox
                 {
                     Width = form.Form.Width,
@@ -235,6 +298,7 @@ namespace PassiveWallpaperF
 
                 if (transparent.Checked)
                 {
+                    //Set the image to be transparent backgrounded and set it's background image to be the current desktop background.
                     pic.BackColor = Color.Transparent;
                     pic.BackgroundImage = new Bitmap(GetCurrentWallpaperPath());
                 }
@@ -244,58 +308,49 @@ namespace PassiveWallpaperF
                     pic.BackgroundImage = null;
                 }
 
+                //Add the picturebox to the form
                 form.Form.Controls.Add(pic);
 
+                //Ensure the parent of the new form is the WorkerW process that was spawned between the desktop wallpaper and icons
                 SetParent(form.Form.Handle, workerw);
             };
 
+            //Ensure that the closing event of the form is set in order to re-set the current desktop wallpaper and 'refresh' it, removing any artifacts
             form.Form.Closing += (s2, a2) => SetImage();
+
+            //Finally display the new form to the user.
             form.Form.Show();
         }
 
         private void disable_button_Click(object sender, EventArgs e)
         {
+            //Attempt to find a background window allocated to the selected monitor
             int monitorId = int.Parse(numericUpDown1.Value.ToString());
             if (Forms.TryGetValue(monitorId, out var form))
             {
+                //Close and dispose of any content related to the form
                 form.Form.Close();
                 form.Form.Dispose();
                 Forms.Remove(monitorId);
+
+                //Set the image to the wallpaper again in order to remove leftover artifacts
                 SetImage();
-            }
-
-            RestoreMovedProcesses();
+            }            
         }
 
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, string pvParam, SPIF fWinIni);
-
-        [Flags()]
-        public enum SPIF
-        {
-
-            None = 0x00,
-            /// <summary>Writes the new system-wide parameter setting to the user profile.</summary>
-            SPIF_UPDATEINIFILE = 0x01,
-            /// <summary>Broadcasts the WM_SETTINGCHANGE message after updating the user profile.</summary>
-            SPIF_SENDCHANGE = 0x02
-        }
-
-        const int SPI_SETDESKWALLPAPER = 0x14;
-        private const int SPI_GETDESKWALLPAPER = 0x73;
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        public static extern int SystemParametersInfo(UInt32 uAction, int uParam, string lpvParam, int fuWinIni);
 
         public string GetCurrentWallpaperPath()
         {
+            //Attempts the return the currently set wallpaper path
             string currentWallpaper = new string('\0', 260);
             SystemParametersInfo(SPI_GETDESKWALLPAPER, currentWallpaper.Length, currentWallpaper, 0);
             currentWallpaper = currentWallpaper.Substring(0, currentWallpaper.IndexOf('\0'));
             return currentWallpaper;
         }
 
+        /// <summary>
+        /// Sets the current wallpaper with the image at it's designated path. Can cause issues/black wallpaper if path incorrect/not set.
+        /// </summary>
         public void SetImage()
         {
             SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, GetCurrentWallpaperPath(), SPIF.SPIF_UPDATEINIFILE | SPIF.SPIF_SENDCHANGE);
@@ -308,15 +363,19 @@ namespace PassiveWallpaperF
 
         public void disable_all(bool wallpaper = true)
         {
+            //Iterate through forms and close them.
             foreach (var form in Forms)
             {
                 form.Value.Form.Close();
             }
+            Forms.Clear();
             if (MovedProcesses.Count > 0)
             {
+                //Restore all process windows to above desktop icons.
                 RestoreMovedProcesses();
             }
 
+            //Attempt to refresh the wallpaper
             if (wallpaper) SetImage();
         }
 
@@ -324,6 +383,8 @@ namespace PassiveWallpaperF
         {
             foreach (var form in Forms)
             {
+                //Reset images in each picturebox by removing and then setting it's image location quickly.
+                //This is method of syncing the windows
                 if (form.Value.Form.Controls.Find("PictureBox", false).FirstOrDefault() is PictureBox pic)
                 {
                     var loc = pic.ImageLocation;
@@ -335,6 +396,7 @@ namespace PassiveWallpaperF
 
         private void transparent_CheckedChanged(object sender, EventArgs e)
         {
+            //Iterate through each window and either set or remove transparent background settings
             foreach (var form in Forms)
             {
                 if (form.Value.Form.Controls.Find("PictureBox", false).FirstOrDefault() is PictureBox pic)
@@ -355,6 +417,7 @@ namespace PassiveWallpaperF
 
         private void minimise_to_tray_Click(object sender, EventArgs e)
         {
+            //Places the program in the tray icons
             Visible = false;
             notifyIcon1.Visible = true;
             ShowInTaskbar = false;
@@ -362,6 +425,7 @@ namespace PassiveWallpaperF
 
         private void notifyIcon1_MouseDoubleClick(object sender, MouseEventArgs e)
         {
+            //Restores the program back to a normal window
             WindowState = FormWindowState.Normal;
             ShowInTaskbar = true;
             notifyIcon1.Visible = false;
@@ -375,6 +439,7 @@ namespace PassiveWallpaperF
 
         private void notifyIcon1_MouseClick(object sender, MouseEventArgs e)
         {
+            //Restores the program back to a normal window
             WindowState = FormWindowState.Normal;
             ShowInTaskbar = true;
             notifyIcon1.Visible = false;
@@ -385,18 +450,23 @@ namespace PassiveWallpaperF
         // External window stuff.
         public void ListProcesses()
         {
+            //Get all other parent window processes ie. those which are displayed to the user and not hidden.
             Process[] processes = Process.GetProcesses();
             Processes.Clear();
             var current = Process.GetCurrentProcess();
             foreach (Process p in processes)
             {
+                //Ensure the window has a title and is not the current program
                 if (!string.IsNullOrEmpty(p.MainWindowTitle) && p.MainWindowTitle != current.MainWindowTitle)
                 {
                     Processes[p.Id] = p;
                 }
             }
 
+            //Clear old processes from the combobox
             processCombo.Items.Clear();
+
+            //Format each process and display the process id and it's title
             var windows = Processes.OrderBy(x => x.Key).Select(x => $"{x.Key} - {x.Value.MainWindowTitle}");
             foreach (var window in windows)
             {
@@ -415,16 +485,19 @@ namespace PassiveWallpaperF
         {
 
         }
-
+        
+        //Format: Process ID - process info.
         public Dictionary<int, MovedProcess> MovedProcesses = new Dictionary<int, MovedProcess>();
         public class MovedProcess
         {
+            //This is an intermittent class used to hold information about processes moved below the desktop icons
             public MovedProcess(IntPtr originalParent, Process proc)
             {
                 OriginalParent = originalParent;
                 Process = proc;
             }
 
+            //Store the original parent of the process so it can be restored later
             public IntPtr OriginalParent;
             public Process Process;
         }
@@ -436,22 +509,27 @@ namespace PassiveWallpaperF
 
             if (line is string val)
             {
+                //Parse the combobox item for it's process id.
                 var id = val.Split(' ').First();
                 int idValue = int.Parse(id);
 
                 var process = Processes.FirstOrDefault(x => x.Key == idValue);
                 if (process.Value == null)
                 {
+                    //Show error if program was closed after being added to list but prior to being added to desktop.
                     MessageBox.Show("Program with the given ID was not found.");
                     return;
                 }
 
                 if (MovedProcesses.ContainsKey(idValue))
                 {
+                    //Ensure the process is not already on the desktop.
                     MessageBox.Show("Program is already below the desktop.");
                     return;
                 }
 
+
+                //Set the processes parent to be the workerW process
                 var originalParent = SetParent(process.Value.MainWindowHandle, GetHandle());
                 belowProcesses.Items.Add(val);
                 MovedProcesses.Add(idValue, new MovedProcess(originalParent, process.Value));
@@ -478,13 +556,18 @@ namespace PassiveWallpaperF
 
             if (line is string val)
             {
+                //Parse for the process id.
                 var id = val.Split(' ').First();
                 int idValue = int.Parse(id);
 
                 if (MovedProcesses.TryGetValue(idValue, out var processMatch))
                 {
+                    //Reset the process parent, moving it back above the desktop.
                     SetParent(processMatch.Process.MainWindowHandle, processMatch.OriginalParent);
+                    //Focus the window
                     bringToFront(processMatch.Process.MainWindowHandle);
+
+                    //Reset wallpaper and remove stored process info.
                     belowProcesses.Items.Remove(val);
                     SetImage();
                     MovedProcesses.Remove(idValue);
@@ -494,12 +577,14 @@ namespace PassiveWallpaperF
 
         public void RestoreMovedProcesses()
         {
+            //Iterate through each moved process and restore it.
             foreach (var pair in MovedProcesses)
             {
                 SetParent(pair.Value.Process.MainWindowHandle, pair.Value.OriginalParent);
                 bringToFront(pair.Value.Process.MainWindowHandle);         
             }
 
+            //Clear stored info and reset wallpaper
             MovedProcesses.Clear();
             belowProcesses.Items.Clear();
             SetImage();
